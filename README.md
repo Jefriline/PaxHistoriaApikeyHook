@@ -6,7 +6,7 @@ This Tampermonkey script allows you to replace the default AI backend of **Pax H
 
 -   **Custom API Key**: Use your own Google AI Studio or OpenRouter API key.
 -   **Model Selection**: Choose any model you want (e.g., `Gemini-3-pro-preview, Gemini-3-flash-preview, etc.`).
--   **Thinking Budget**: Configure the "thinking" budget for Gemini 2.0 Flash Thinking models.
+-   **Thinking Budget**: Configure the "thinking" budget for Gemini models.
 -   **GUI Settings**: Easy-to-use settings menu directly in the game.
 -   **Privacy**: Your prompts go directly to Google/OpenRouter, not through third-party proxies.
 
@@ -14,7 +14,7 @@ This Tampermonkey script allows you to replace the default AI backend of **Pax H
 
 1.  Install the **Tampermonkey** extension for your browser (Chrome, Firefox, Edge, etc.).
 2.  Create a new script in Tampermonkey.
-3.  Copy and paste the content of `Pax Historia- Gemini 3 Flash Hook-3.0.user.js` into the editor.
+3.  Copy and paste the content of `Pax HistoriaHook.user.js` into the editor.
 4.  Save the script (Ctrl+S).
 
 ## Configuration
@@ -28,7 +28,7 @@ This Tampermonkey script allows you to replace the default AI backend of **Pax H
         -   Get Google Key: [aistudio.google.com](https://aistudio.google.com/app/apikey)
         -   Get OpenRouter Key: [openrouter.ai/keys](https://openrouter.ai/keys)
     -   **Model Name**: Enter the model ID you want to use.
-        -   Default Google: `gemini-2.0-flash-thinking-exp-1219`
+        -   Default Google: `gemini-3-flash-preview`
         -   Default OpenRouter: `google/gemini-2.0-flash-thinking-exp:free`
     -   **Thinking Budget**: (Google only) Set the token budget for the model's internal thought process (default 4096).
 5.  Click **Save**.
