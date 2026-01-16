@@ -1,6 +1,6 @@
 # Pax Historia: Custom AI Backend Hook
 
-This Tampermonkey script allows you to replace the default AI backend of **Pax Historia** with your own **Google Gemini** or **OpenRouter** API key. This gives you control over the model used (including Thinking models), saves you money (if using free tiers), and ensures privacy.
+This Tampermonkey script allows you to replace the default AI backend of **Pax Historia** with your own **Google Gemini** or **OpenRouter** API key. This gives you control over the model used (including Thinking models), saves you money (if using free tiers), and ensures privacy. It basically allows you to use Google Cloud free credits, and use most intelligent AI model, Gemini 3 pro, for free in Pax Historia.
 
 ## Features
 
