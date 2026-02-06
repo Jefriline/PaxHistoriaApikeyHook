@@ -83,10 +83,32 @@
 
     function testCopilotConnection(baseUrl) {
         return fetchCopilotApi("/v1/models", { baseUrl: baseUrl }).then(function (result) {
+            if (!result.ok) {
+                return {
+                    online: false,
+                    models: [],
+                    error: result.text || "HTTP " + result.status
+                };
+            }
+            var rawData = result.data && result.data.data;
+            if (!Array.isArray(rawData) && Array.isArray(result.data)) {
+                rawData = result.data;
+            }
+            var models = [];
+            if (Array.isArray(rawData)) {
+                var seen = {};
+                for (var i = 0; i < rawData.length; i++) {
+                    var modelId = rawData[i] && (rawData[i].id || rawData[i]);
+                    if (modelId && typeof modelId === "string" && !seen[modelId]) {
+                        seen[modelId] = true;
+                        models.push(modelId);
+                    }
+                }
+            }
             return {
-                online: result.ok,
-                models: result.ok && result.data?.data ? result.data.data.map(function (m) { return m.id; }) : [],
-                error: result.ok ? null : (result.text || "HTTP " + result.status)
+                online: true,
+                models: models,
+                error: null
             };
         });
     }
@@ -130,9 +152,9 @@
                     <div id="ph-copilot-fields" style="display: ${settings.provider === 'copilot' ? 'block' : 'none'};">
                         <label style="display: block; margin-top: 10px;">Base URL (sin API key):</label>
                         <input type="text" id="ph-copilot-base-url" value="${settings.copilotBaseUrl}" style="width: 100%; padding: 8px; margin-top: 5px; background: #333; color: #fff; border: 1px solid #555; border-radius: 4px;" placeholder="http://localhost:4141">
-                        <div style="display: flex; gap: 8px; align-items: center; margin-top: 10px;">
-                            <label style="flex: 1;">Model:</label>
-                            <select id="ph-copilot-model" style="flex: 2; padding: 8px; background: #333; color: #fff; border: 1px solid #555; border-radius: 4px;">
+                        <div style="margin-top: 10px;">
+                            <label style="display: block; margin-bottom: 5px;">Model:</label>
+                            <select id="ph-copilot-model" size="12" style="width: 100%; padding: 8px; background: #333; color: #fff; border: 1px solid #555; border-radius: 4px;">
                                 <option value="${settings.copilotModel}">${settings.copilotModel}</option>
                             </select>
                         </div>
@@ -387,8 +409,13 @@
                         console.error("[PAX AI] JSON not found in response for action!");
                     }
 
-                    // Validate JSON
+                    // Unwrap schema wrapper: AI may return {name,strict,schema:{message,mapMode}}
+                    // Game expects {message,mapMode} directly
                     try {
+                        var parsed = JSON.parse(cleanText);
+                        if (parsed && parsed.schema && typeof parsed.schema === "object") {
+                            cleanText = JSON.stringify(parsed.schema);
+                        }
                         JSON.parse(cleanText);
                         console.log("%c[PAX AI] JSON VALID.", "color: lime");
                     } catch (e) {
