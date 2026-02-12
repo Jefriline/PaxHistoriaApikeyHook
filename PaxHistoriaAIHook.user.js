@@ -235,9 +235,21 @@
                 thinkingBudget: parseInt(document.getElementById('ph-thinking-budget').value, 10) || 4096
             };
             saveSettings(newSettings);
-            alert('Settings saved! Reload the page for changes to take effect.');
             document.getElementById('ph-ai-settings-modal').remove();
-            location.reload();
+
+            // Show a non-blocking toast notification
+            const toast = document.createElement('div');
+            toast.textContent = '✅ Settings saved!';
+            Object.assign(toast.style, {
+                position: 'fixed', bottom: '30px', left: '50%', transform: 'translateX(-50%)',
+                background: '#2ecc40', color: '#fff', padding: '12px 24px', borderRadius: '8px',
+                fontSize: '14px', fontFamily: 'sans-serif', fontWeight: 'bold',
+                zIndex: '10001', opacity: '1', transition: 'opacity 0.5s ease',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
+            });
+            document.body.appendChild(toast);
+            setTimeout(() => { toast.style.opacity = '0'; }, 1500);
+            setTimeout(() => { toast.remove(); }, 2000);
         });
 
         if (settings.provider === 'copilot') {
@@ -427,9 +439,22 @@
                 let responseBody;
 
                 if (isAction) {
-                    // FOR ACTIONS: Return raw JSON text
-                    // Game expects: { "events": [...] }
-                    responseBody = cleanText;
+                    // FOR ACTIONS: The AI follows the jsonSchema and may wrap the
+                    // response in a root key (e.g. { "advisorResponse": { "message": "...", "mapMode": {...} } }).
+                    // The game expects the inner fields at the top level, so we unwrap
+                    // single-key object wrappers automatically.
+                    try {
+                        const parsed = JSON.parse(cleanText);
+                        const keys = Object.keys(parsed);
+                        if (keys.length === 1 && typeof parsed[keys[0]] === 'object' && !Array.isArray(parsed[keys[0]])) {
+                            console.log(`%c[PAX AI] Unwrapped root key "${keys[0]}"`, "color: cyan");
+                            responseBody = JSON.stringify(parsed[keys[0]]);
+                        } else {
+                            responseBody = cleanText;
+                        }
+                    } catch {
+                        responseBody = cleanText;
+                    }
                 } else {
                     // FOR CHAT: Wrap in message object
                     // Game expects: { "message": "Hello" }
