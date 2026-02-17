@@ -76,13 +76,6 @@ models and select one (e.g. `gpt-4.1`,
 
 ## Troubleshooting
 
-- **"No events" error**: Model did not return valid JSON. Try a more capable model or increase thinking budget.
-- **Network error**: Check Base URL and that the proxy (Ollama, LM Studio, Copilot) is running.
-- **Script not loading**: Ensure Tampermonkey has the required permissions (`GM_xmlhttpRequest`, `@connect *`).
-- **API errors**: Check browser console (F12) for `[PAX AI]` logs.
-
-## Troubleshooting
-
 - **"No events" error**: The model did not return valid JSON. Try a more capable model or increase the thinking budget.
 - **Copilot API: Network error or no connection**: Ensure the proxy is running (`npx copilot-api@latest start`) and the Base URL is correct.
 - **Script not working**: Check that the script is enabled in Tampermonkey and that you have accepted the requested permissions (including `GM_xmlhttpRequest` for Copilot API).
