@@ -19,6 +19,38 @@
 (function () {
     'use strict';
 
+    // === SCHEMA CONVERSION ===
+    // Game sends OpenAI-style schema: { name: "...", strict: true, schema: { ... } }
+    // Google API expects raw schema with "nullable: true" instead of type arrays like ["object", "null"]
+    function convertSchemaForGoogle(gameSchema) {
+        let schema = gameSchema && gameSchema.schema ? gameSchema.schema : gameSchema;
+        return fixTypeArrays(JSON.parse(JSON.stringify(schema)));
+    }
+
+    function fixTypeArrays(obj) {
+        if (!obj || typeof obj !== 'object') return obj;
+        if (Array.isArray(obj)) { obj.forEach(fixTypeArrays); return obj; }
+
+        // Convert type: ["object", "null"] → type: "object", nullable: true
+        if (Array.isArray(obj.type)) {
+            const nonNull = obj.type.filter(t => t !== 'null');
+            if (obj.type.includes('null')) obj.nullable = true;
+            obj.type = nonNull[0] || 'string';
+        }
+        // Remove fields unsupported by Google's responseSchema
+        delete obj.additionalProperties;
+        delete obj.minItems;
+
+        // Recurse into ALL possible schema locations
+        if (obj.properties) Object.values(obj.properties).forEach(fixTypeArrays);
+        if (obj.items) fixTypeArrays(obj.items);
+        if (obj.anyOf) obj.anyOf.forEach(fixTypeArrays);
+        if (obj.oneOf) obj.oneOf.forEach(fixTypeArrays);
+        if (obj.allOf) obj.allOf.forEach(fixTypeArrays);
+        return obj;
+    }
+
+
     // === DEFAULT SETTINGS ===
     const DEFAULTS = {
         provider: "google", // 'google', 'openrouter', or 'copilot'
@@ -243,9 +275,21 @@
                 thinkingBudget: parseInt(document.getElementById('ph-thinking-budget').value, 10) || 4096
             };
             saveSettings(newSettings);
-            alert('Settings saved! Reload the page for changes to take effect.');
             document.getElementById('ph-ai-settings-modal').remove();
-            location.reload();
+
+            // Show a non-blocking toast notification
+            const toast = document.createElement('div');
+            toast.textContent = '✅ Settings saved!';
+            Object.assign(toast.style, {
+                position: 'fixed', bottom: '30px', left: '50%', transform: 'translateX(-50%)',
+                background: '#2ecc40', color: '#fff', padding: '12px 24px', borderRadius: '8px',
+                fontSize: '14px', fontFamily: 'sans-serif', fontWeight: 'bold',
+                zIndex: '10001', opacity: '1', transition: 'opacity 0.5s ease',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
+            });
+            document.body.appendChild(toast);
+            setTimeout(() => { toast.style.opacity = '0'; }, 1500);
+            setTimeout(() => { toast.remove(); }, 2000);
         });
 
         if (settings.provider === 'copilot') {
@@ -274,7 +318,7 @@
             try {
                 let userPrompt = "";
                 let isAction = false;
-                let schemaStr = "";
+                let gameSchema = null; // raw schema object from the game
 
                 if (options.body) {
                     const payload = JSON.parse(options.body);
@@ -285,16 +329,19 @@
                         isAction = false;
                     } else if (payload.jsonSchema) {
                         isAction = true;
-                        schemaStr = JSON.stringify(payload.jsonSchema);
+                        gameSchema = payload.jsonSchema;
                     }
                 }
 
                 console.log(`%c[PAX AI] TYPE: ${isAction ? "ACTION (RAW JSON)" : "CHAT (WRAPPER)"} | Provider: ${settings.provider}`, "background: blue; color: white; padding: 5px; font-weight: bold;");
 
                 let finalPrompt = userPrompt;
-                // For actions, add strict instruction
-                if (isAction && schemaStr) {
-                    finalPrompt += `\n\nTASK: Generate a valid JSON object matching this schema.\nSCHEMA: ${schemaStr}\n\nIMPORTANT: Return ONLY the JSON object. No markdown.`;
+                // Advisor uses native responseSchema (clean JSON output).
+                // Everything else uses old prompt-based schema injection (complex schemas break Google's API).
+                const isAdvisor = isAction && gameSchema && gameSchema.name === 'advisorResponse';
+
+                if (isAction && gameSchema && !isAdvisor) {
+                    finalPrompt += `\n\nTASK: Generate a valid JSON object matching this schema.\nSCHEMA: ${JSON.stringify(gameSchema)}\n\nIMPORTANT: Return ONLY the JSON object. No markdown.`;
                 }
 
                 let responseText = "";
@@ -310,6 +357,13 @@
                             thinking_budget: settings.thinkingBudget
                         }
                     };
+
+                    // Use native structured output ONLY for advisor (simple schema)
+                    if (isAdvisor) {
+                        genConfig.responseMimeType = "application/json";
+                        genConfig.responseSchema = convertSchemaForGoogle(gameSchema);
+                        console.log("%c[PAX AI] Advisor: using native responseSchema", "color: cyan");
+                    }
 
                     const googlePayload = {
                         contents: [{ parts: [{ text: finalPrompt }] }],
@@ -359,6 +413,15 @@
                             { role: "user", content: finalPrompt }
                         ]
                     };
+
+                    // Use native structured output ONLY for advisor
+                    if (isAdvisor) {
+                        orPayload.response_format = {
+                            type: "json_schema",
+                            json_schema: gameSchema
+                        };
+                        console.log("%c[PAX AI] Advisor: using response_format", "color: cyan");
+                    }
 
                     const myResponse = await originalFetch(orUrl, {
                         method: "POST",
@@ -435,9 +498,22 @@
                 let responseBody;
 
                 if (isAction) {
-                    // FOR ACTIONS: Return raw JSON text
-                    // Game expects: { "events": [...] }
-                    responseBody = cleanText;
+                    // FOR ACTIONS: The AI follows the jsonSchema and may wrap the
+                    // response in a root key (e.g. { "advisorResponse": { "message": "...", "mapMode": {...} } }).
+                    // The game expects the inner fields at the top level, so we unwrap
+                    // single-key object wrappers automatically.
+                    try {
+                        const parsed = JSON.parse(cleanText);
+                        const keys = Object.keys(parsed);
+                        if (keys.length === 1 && typeof parsed[keys[0]] === 'object' && !Array.isArray(parsed[keys[0]])) {
+                            console.log(`%c[PAX AI] Unwrapped root key "${keys[0]}"`, "color: cyan");
+                            responseBody = JSON.stringify(parsed[keys[0]]);
+                        } else {
+                            responseBody = cleanText;
+                        }
+                    } catch {
+                        responseBody = cleanText;
+                    }
                 } else {
                     // FOR CHAT: Wrap in message object
                     // Game expects: { "message": "Hello" }
