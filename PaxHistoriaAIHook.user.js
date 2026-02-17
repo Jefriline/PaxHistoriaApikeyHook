@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Pax Historia: Custom AI Backend (Gemini/Thinking/OpenRouter/Copilot)
+// @name         Pax Historia: Custom AI Backend (Multi-Provider)
 // @namespace    http://tampermonkey.net/
-// @version      14.1
-// @description  Custom AI backend for Pax Historia with Settings GUI. Supports Google Gemini, OpenRouter and Copilot API.
+// @version      15.0
+// @description  Custom AI backend for Pax Historia. Supports Google, OpenRouter, OpenAI, Groq, Ollama, LM Studio, Together, Fireworks, Mistral, Anthropic, Copilot, Generic.
 // @author       You
 // @match        https://paxhistoria.co/*
 // @match        https://www.paxhistoria.co/*
@@ -13,6 +13,8 @@
 // @connect      localhost
 // @connect      127.0.0.1
 // @connect      *
+// @updateURL    https://raw.githubusercontent.com/ArMerMergas/PaxHistoriaApikeyHook/main/PaxHistoriaAIHook.user.js
+// @downloadURL  https://raw.githubusercontent.com/ArMerMergas/PaxHistoriaApikeyHook/main/PaxHistoriaAIHook.user.js
 // @run-at       document-start
 // ==/UserScript==
 
@@ -51,14 +53,40 @@
     }
 
 
+    // === PROVIDER URLS (documented endpoints) ===
+    const PROVIDER_URLS = {
+        openai: "https://api.openai.com/v1",
+        groq: "https://api.groq.com/openai/v1",
+        openrouter: "https://openrouter.ai/api/v1",
+        ollama: "http://localhost:11434/v1",
+        lmstudio: "http://localhost:1234/v1",
+        together: "https://api.together.xyz/v1",
+        fireworks: "https://api.fireworks.ai/inference/v1",
+        mistral: "https://api.mistral.ai/v1",
+        anthropic: "https://api.anthropic.com/v1"
+    };
+
     // === DEFAULT SETTINGS ===
     const DEFAULTS = {
-        provider: "google", // 'google', 'openrouter', or 'copilot'
+        provider: "google",
         apiKey: "",
         modelName: "gemini-3-flash-preview",
         openRouterModel: "google/gemini-2.0-flash-thinking-exp:free",
+        openaiModel: "gpt-4o-mini",
+        groqModel: "llama-3.1-70b-versatile",
+        ollamaBaseUrl: "http://localhost:11434",
+        ollamaModel: "llama3.2",
+        lmStudioBaseUrl: "http://localhost:1234",
+        lmStudioModel: "local-model",
+        togetherModel: "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+        fireworksModel: "accounts/fireworks/models/llama-v3p1-8b-instruct",
+        mistralModel: "mistral-small-latest",
+        anthropicModel: "claude-sonnet-4-20250514",
         copilotBaseUrl: "http://localhost:4141",
         copilotModel: "gpt-4.1",
+        genericBaseUrl: "https://api.openai.com/v1",
+        genericModel: "gpt-4o-mini",
+        genericApiKey: "",
         thinkingBudget: 4096
     };
 
@@ -69,8 +97,21 @@
             apiKey: GM_getValue("apiKey", DEFAULTS.apiKey),
             modelName: GM_getValue("modelName", DEFAULTS.modelName),
             openRouterModel: GM_getValue("openRouterModel", DEFAULTS.openRouterModel),
+            openaiModel: GM_getValue("openaiModel", DEFAULTS.openaiModel),
+            groqModel: GM_getValue("groqModel", DEFAULTS.groqModel),
+            ollamaBaseUrl: GM_getValue("ollamaBaseUrl", DEFAULTS.ollamaBaseUrl),
+            ollamaModel: GM_getValue("ollamaModel", DEFAULTS.ollamaModel),
+            lmStudioBaseUrl: GM_getValue("lmStudioBaseUrl", DEFAULTS.lmStudioBaseUrl),
+            lmStudioModel: GM_getValue("lmStudioModel", DEFAULTS.lmStudioModel),
+            togetherModel: GM_getValue("togetherModel", DEFAULTS.togetherModel),
+            fireworksModel: GM_getValue("fireworksModel", DEFAULTS.fireworksModel),
+            mistralModel: GM_getValue("mistralModel", DEFAULTS.mistralModel),
+            anthropicModel: GM_getValue("anthropicModel", DEFAULTS.anthropicModel),
             copilotBaseUrl: GM_getValue("copilotBaseUrl", DEFAULTS.copilotBaseUrl),
             copilotModel: GM_getValue("copilotModel", DEFAULTS.copilotModel),
+            genericBaseUrl: GM_getValue("genericBaseUrl", DEFAULTS.genericBaseUrl),
+            genericModel: GM_getValue("genericModel", DEFAULTS.genericModel),
+            genericApiKey: GM_getValue("genericApiKey", DEFAULTS.genericApiKey),
             thinkingBudget: GM_getValue("thinkingBudget", DEFAULTS.thinkingBudget)
         };
     }
@@ -80,8 +121,21 @@
         GM_setValue("apiKey", settings.apiKey);
         GM_setValue("modelName", settings.modelName);
         GM_setValue("openRouterModel", settings.openRouterModel);
+        GM_setValue("openaiModel", settings.openaiModel);
+        GM_setValue("groqModel", settings.groqModel);
+        GM_setValue("ollamaBaseUrl", settings.ollamaBaseUrl);
+        GM_setValue("ollamaModel", settings.ollamaModel);
+        GM_setValue("lmStudioBaseUrl", settings.lmStudioBaseUrl);
+        GM_setValue("lmStudioModel", settings.lmStudioModel);
+        GM_setValue("togetherModel", settings.togetherModel);
+        GM_setValue("fireworksModel", settings.fireworksModel);
+        GM_setValue("mistralModel", settings.mistralModel);
+        GM_setValue("anthropicModel", settings.anthropicModel);
         GM_setValue("copilotBaseUrl", settings.copilotBaseUrl);
         GM_setValue("copilotModel", settings.copilotModel);
+        GM_setValue("genericBaseUrl", settings.genericBaseUrl);
+        GM_setValue("genericModel", settings.genericModel);
+        GM_setValue("genericApiKey", settings.genericApiKey);
         GM_setValue("thinkingBudget", settings.thinkingBudget);
     }
 
@@ -123,11 +177,60 @@
         throw lastError;
     }
 
+    // === CORS-FREE HTTP CLIENT (for external/local APIs) ===
+    function fetchApi(url, options) {
+        return new Promise(function (resolve, reject) {
+            const method = options?.method || "GET";
+            const body = options?.body ? JSON.stringify(options.body) : undefined;
+            const headers = options?.headers || {};
+            if (body && !headers["Content-Type"]) headers["Content-Type"] = "application/json";
+
+            GM_xmlhttpRequest({
+                method: method,
+                url: url,
+                headers: headers,
+                data: body,
+                onload: function (response) {
+                    try {
+                        const parsed = response.responseText ? JSON.parse(response.responseText) : {};
+                        resolve({
+                            ok: response.status >= 200 && response.status < 300,
+                            status: response.status,
+                            data: parsed,
+                            text: response.responseText
+                        });
+                    } catch (e) {
+                        resolve({
+                            ok: false,
+                            status: response.status,
+                            data: null,
+                            text: response.responseText
+                        });
+                    }
+                },
+                onerror: function () {
+                    reject(new Error("Network error: " + url));
+                }
+            });
+        });
+    }
+
     function getModelLabel(settings) {
-        if (settings.provider === "google") return settings.modelName;
-        if (settings.provider === "openrouter") return settings.openRouterModel.split("/").pop();
-        if (settings.provider === "copilot") return settings.copilotModel;
-        return "?";
+        switch (settings.provider) {
+            case "google": return settings.modelName;
+            case "openrouter": return (settings.openRouterModel || "").split("/").pop() || "?";
+            case "copilot": return settings.copilotModel;
+            case "openai": return settings.openaiModel;
+            case "groq": return settings.groqModel;
+            case "ollama": return settings.ollamaModel;
+            case "lmstudio": return settings.lmStudioModel;
+            case "together": return (settings.togetherModel || "").split("/").pop() || "?";
+            case "fireworks": return (settings.fireworksModel || "").split("/").pop() || "?";
+            case "mistral": return settings.mistralModel;
+            case "anthropic": return settings.anthropicModel;
+            case "generic": return settings.genericModel || (settings.genericBaseUrl || "").replace(/\/$/, "").split("/").pop() || "?";
+            default: return "?";
+        }
     }
 
     function isInFooter(el) {
@@ -161,7 +264,7 @@
 
     function ensureParentFlex(element) {
         var parent = element && element.parentNode;
-        if (parent) {
+        if (parent && parent !== document.body) {
             parent.style.setProperty("display", "flex", "important");
             parent.style.setProperty("align-items", "center", "important");
             parent.style.setProperty("gap", "0.5rem", "important");
@@ -191,7 +294,24 @@
             existing.querySelector(".ph-ai-indicator-text").textContent = label;
             existing.style.background = "rgb(40, 20, 60)";
             existing.style.color = "#fafafa";
-            ensureParentFlex(existing);
+            existing.style.position = "";
+            existing.style.top = "";
+            existing.style.left = "";
+            existing.style.marginLeft = "";
+            var logoElement = findPaxHistoriaLogo();
+            if (logoElement && existing.parentNode === document.body) {
+                var parent = logoElement.parentNode;
+                if (parent) {
+                    if (logoElement.nextElementSibling) {
+                        parent.insertBefore(existing, logoElement.nextElementSibling);
+                    } else {
+                        parent.appendChild(existing);
+                    }
+                    ensureParentFlex(existing);
+                }
+            } else {
+                ensureParentFlex(existing);
+            }
             return;
         }
         var box = document.createElement("button");
@@ -313,36 +433,58 @@
         else document.addEventListener("DOMContentLoaded", startRemovalObserver);
     }
 
-    // === COPILOT API HELPERS ===
-    function fetchCopilotApi(endpoint, options) {
-        return new Promise(function (resolve, reject) {
-            const baseUrl = (options?.baseUrl || loadSettings().copilotBaseUrl || DEFAULTS.copilotBaseUrl).replace(/\/$/, "");
-            const url = baseUrl + endpoint;
-            const method = options?.method || "GET";
-            const body = options?.body ? JSON.stringify(options.body) : undefined;
+    // === OPENAI-COMPATIBLE HELPERS ===
+    function buildBaseUrl(url) {
+        return (url || "").replace(/\/$/, "");
+    }
 
-            GM_xmlhttpRequest({
-                method: method,
-                url: url,
-                headers: { "Content-Type": "application/json" },
-                data: body,
-                onload: function (response) {
-                    try {
-                        const parsed = response.responseText ? JSON.parse(response.responseText) : {};
-                        resolve({ ok: response.status >= 200 && response.status < 300, status: response.status, data: parsed, text: response.responseText });
-                    } catch (e) {
-                        resolve({ ok: false, status: response.status, data: null, text: response.responseText });
-                    }
-                },
-                onerror: function () {
-                    reject(new Error("Network error connecting to Copilot API"));
+    function getApiBase(baseUrl) {
+        var base = buildBaseUrl(baseUrl);
+        return base.endsWith("/v1") ? base : base + "/v1";
+    }
+
+    function callAnthropicApi(settings, finalPrompt, isAdvisor, gameSchema) {
+        var url = PROVIDER_URLS.anthropic + "/messages";
+        var body = {
+            model: settings.anthropicModel || DEFAULTS.anthropicModel,
+            max_tokens: 4096,
+            messages: [{ role: "user", content: finalPrompt }]
+        };
+        if (isAdvisor && gameSchema && gameSchema.schema) {
+            body.output_config = {
+                format: { type: "json_schema", schema: gameSchema.schema }
+            };
+            console.log("%c[PAX AI] Advisor: using Anthropic output_config", "color: cyan");
+        }
+        var headers = {
+            "Content-Type": "application/json",
+            "x-api-key": settings.apiKey,
+            "anthropic-version": "2023-06-01"
+        };
+        return fetchApi(url, { method: "POST", headers: headers, body: body }).then(function (result) {
+            if (!result.ok) {
+                var errMsg = result.data?.error?.message || result.text || "HTTP " + result.status;
+                var err = new Error("Anthropic API Error: " + errMsg);
+                err.status = result.status;
+                throw err;
+            }
+            var content = result.data?.content || [];
+            var text = "";
+            for (var i = 0; i < content.length; i++) {
+                if (content[i].type === "text" && content[i].text) {
+                    text += content[i].text;
                 }
-            });
+            }
+            return text;
         });
     }
 
-    function testCopilotConnection(baseUrl) {
-        return fetchCopilotApi("/v1/models", { baseUrl: baseUrl }).then(function (result) {
+    function testOpenAICompatibleConnection(baseUrl, apiKey) {
+        var base = getApiBase(baseUrl);
+        var modelsPath = "/models";
+        var headers = {};
+        if (apiKey) headers["Authorization"] = "Bearer " + apiKey;
+        return fetchApi(base + modelsPath, { headers: headers }).then(function (result) {
             if (!result.ok) {
                 return {
                     online: false,
@@ -399,36 +541,110 @@
                     <select id="ph-provider">
                         <option value="google" ${settings.provider === 'google' ? 'selected' : ''}>Google AI Studio</option>
                         <option value="openrouter" ${settings.provider === 'openrouter' ? 'selected' : ''}>OpenRouter</option>
+                        <option value="openai" ${settings.provider === 'openai' ? 'selected' : ''}>OpenAI</option>
+                        <option value="groq" ${settings.provider === 'groq' ? 'selected' : ''}>Groq</option>
+                        <option value="ollama" ${settings.provider === 'ollama' ? 'selected' : ''}>Ollama (local)</option>
+                        <option value="lmstudio" ${settings.provider === 'lmstudio' ? 'selected' : ''}>LM Studio (local)</option>
+                        <option value="together" ${settings.provider === 'together' ? 'selected' : ''}>Together AI</option>
+                        <option value="fireworks" ${settings.provider === 'fireworks' ? 'selected' : ''}>Fireworks AI</option>
+                        <option value="mistral" ${settings.provider === 'mistral' ? 'selected' : ''}>Mistral AI</option>
+                        <option value="anthropic" ${settings.provider === 'anthropic' ? 'selected' : ''}>Anthropic (Claude)</option>
                         <option value="copilot" ${settings.provider === 'copilot' ? 'selected' : ''}>Copilot API (local)</option>
+                        <option value="generic" ${settings.provider === 'generic' ? 'selected' : ''}>Generic (URL)</option>
                     </select>
 
-                    <div id="ph-api-key-container" style="display: ${settings.provider === 'copilot' ? 'none' : 'block'};">
+                    <div id="ph-api-key-container" style="display: ${['ollama','lmstudio','copilot','generic'].indexOf(settings.provider) !== -1 ? 'none' : 'block'};">
                         <label for="ph-api-key">API Key:</label>
-                        <input type="text" id="ph-api-key" value="${settings.apiKey}" placeholder="Enter API Key">
+                        <input type="text" id="ph-api-key" value="${settings.apiKey}" placeholder="sk-...">
                     </div>
 
                     <div id="ph-google-fields" style="display: ${settings.provider === 'google' ? 'block' : 'none'};">
-                        <label for="ph-model-name">Model Name:</label>
+                        <label for="ph-model-name">Model:</label>
                         <input type="text" id="ph-model-name" value="${settings.modelName}">
                         <label for="ph-thinking-budget">Thinking Budget (Tokens):</label>
                         <input type="number" id="ph-thinking-budget" value="${settings.thinkingBudget}">
                     </div>
 
                     <div id="ph-openrouter-fields" style="display: ${settings.provider === 'openrouter' ? 'block' : 'none'};">
-                        <label for="ph-or-model-name">OpenRouter Model:</label>
-                        <input type="text" id="ph-or-model-name" value="${settings.openRouterModel}">
+                        <label for="ph-or-model-name">Model:</label>
+                        <input type="text" id="ph-or-model-name" value="${settings.openRouterModel}" placeholder="provider/model">
+                    </div>
+
+                    <div id="ph-openai-fields" style="display: ${settings.provider === 'openai' ? 'block' : 'none'};">
+                        <label for="ph-openai-model">Model:</label>
+                        <input type="text" id="ph-openai-model" value="${settings.openaiModel}" placeholder="gpt-4o-mini">
+                    </div>
+
+                    <div id="ph-groq-fields" style="display: ${settings.provider === 'groq' ? 'block' : 'none'};">
+                        <label for="ph-groq-model">Model:</label>
+                        <input type="text" id="ph-groq-model" value="${settings.groqModel}" placeholder="llama-3.1-70b-versatile">
+                    </div>
+
+                    <div id="ph-ollama-fields" style="display: ${settings.provider === 'ollama' ? 'block' : 'none'};">
+                        <label for="ph-ollama-base-url">Base URL:</label>
+                        <input type="text" id="ph-ollama-base-url" value="${settings.ollamaBaseUrl}" placeholder="http://localhost:11434">
+                        <label for="ph-ollama-model">Model:</label>
+                        <input type="text" id="ph-ollama-model" value="${settings.ollamaModel}" placeholder="llama3.2">
+                        <div style="margin-top: 8px;">
+                            <button id="ph-test-ollama-btn" type="button" style="background: #28a745; color: #fff;">Test</button>
+                            <span id="ph-ollama-status" style="font-size: 0.85rem; margin-left: 8px;"></span>
+                        </div>
+                    </div>
+
+                    <div id="ph-lmstudio-fields" style="display: ${settings.provider === 'lmstudio' ? 'block' : 'none'};">
+                        <label for="ph-lmstudio-base-url">Base URL:</label>
+                        <input type="text" id="ph-lmstudio-base-url" value="${settings.lmStudioBaseUrl}" placeholder="http://localhost:1234">
+                        <label for="ph-lmstudio-model">Model:</label>
+                        <select id="ph-lmstudio-model" size="6">
+                            <option value="${settings.lmStudioModel || DEFAULTS.lmStudioModel}">${settings.lmStudioModel || DEFAULTS.lmStudioModel}</option>
+                        </select>
+                        <div style="margin-top: 8px;">
+                            <button id="ph-test-lmstudio-btn" type="button" style="background: #28a745; color: #fff;">Test</button>
+                            <span id="ph-lmstudio-status" style="font-size: 0.85rem; margin-left: 8px;"></span>
+                        </div>
+                    </div>
+
+                    <div id="ph-together-fields" style="display: ${settings.provider === 'together' ? 'block' : 'none'};">
+                        <label for="ph-together-model">Model:</label>
+                        <input type="text" id="ph-together-model" value="${settings.togetherModel}" placeholder="meta-llama/Llama-3.3-70B-Instruct-Turbo">
+                    </div>
+
+                    <div id="ph-fireworks-fields" style="display: ${settings.provider === 'fireworks' ? 'block' : 'none'};">
+                        <label for="ph-fireworks-model">Model:</label>
+                        <input type="text" id="ph-fireworks-model" value="${settings.fireworksModel}" placeholder="accounts/fireworks/models/llama-v3p1-8b-instruct">
+                    </div>
+
+                    <div id="ph-mistral-fields" style="display: ${settings.provider === 'mistral' ? 'block' : 'none'};">
+                        <label for="ph-mistral-model">Model:</label>
+                        <input type="text" id="ph-mistral-model" value="${settings.mistralModel}" placeholder="mistral-small-latest">
+                    </div>
+
+                    <div id="ph-anthropic-fields" style="display: ${settings.provider === 'anthropic' ? 'block' : 'none'};">
+                        <label for="ph-anthropic-model">Model:</label>
+                        <input type="text" id="ph-anthropic-model" value="${settings.anthropicModel}" placeholder="claude-sonnet-4-20250514">
                     </div>
 
                     <div id="ph-copilot-fields" style="display: ${settings.provider === 'copilot' ? 'block' : 'none'};">
-                        <label for="ph-copilot-base-url">Base URL (no API key):</label>
+                        <label for="ph-copilot-base-url">Base URL:</label>
                         <input type="text" id="ph-copilot-base-url" value="${settings.copilotBaseUrl}" placeholder="http://localhost:4141">
                         <label for="ph-copilot-model">Model:</label>
-                        <select id="ph-copilot-model" size="8">
-                            <option value="${settings.copilotModel}">${settings.copilotModel}</option>
-                        </select>
-                        <div style="margin-top: 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px;">
-                            <button id="ph-test-copilot-btn" style="background: #28a745; color: #fff;">Test connection</button>
-                            <span id="ph-test-status" style="font-size: 0.85rem;"></span>
+                        <select id="ph-copilot-model" size="6"></select>
+                        <div style="margin-top: 8px;">
+                            <button id="ph-test-copilot-btn" type="button" style="background: #28a745; color: #fff;">Test</button>
+                            <span id="ph-copilot-status" style="font-size: 0.85rem; margin-left: 8px;"></span>
+                        </div>
+                    </div>
+
+                    <div id="ph-generic-fields" style="display: ${settings.provider === 'generic' ? 'block' : 'none'};">
+                        <label for="ph-generic-base-url">Base URL:</label>
+                        <input type="text" id="ph-generic-base-url" value="${settings.genericBaseUrl}" placeholder="https://api.example.com/v1">
+                        <label for="ph-generic-model">Model:</label>
+                        <input type="text" id="ph-generic-model" value="${settings.genericModel}">
+                        <label for="ph-generic-api-key">API Key (optional):</label>
+                        <input type="text" id="ph-generic-api-key" value="${settings.genericApiKey}" placeholder="Optional">
+                        <div style="margin-top: 8px;">
+                            <button id="ph-test-generic-btn" type="button" style="background: #28a745; color: #fff;">Test</button>
+                            <span id="ph-generic-status" style="font-size: 0.85rem; margin-left: 8px;"></span>
                         </div>
                     </div>
 
@@ -447,39 +663,64 @@
         // Event Listeners
         function updateProviderVisibility() {
             const provider = document.getElementById('ph-provider').value;
-            const isGoogle = provider === 'google';
-            const isOpenRouter = provider === 'openrouter';
-            const isCopilot = provider === 'copilot';
-            document.getElementById('ph-google-fields').style.display = isGoogle ? 'block' : 'none';
-            document.getElementById('ph-openrouter-fields').style.display = isOpenRouter ? 'block' : 'none';
-            document.getElementById('ph-copilot-fields').style.display = isCopilot ? 'block' : 'none';
-            document.getElementById('ph-api-key-container').style.display = isCopilot ? 'none' : 'block';
+            const noApiKey = ['ollama', 'lmstudio', 'copilot', 'generic'];
+            document.getElementById('ph-api-key-container').style.display = noApiKey.indexOf(provider) !== -1 ? 'none' : 'block';
+            ['google','openrouter','openai','groq','ollama','lmstudio','together','fireworks','mistral','anthropic','copilot','generic'].forEach(function (p) {
+                var el = document.getElementById('ph-' + p + '-fields');
+                if (el) el.style.display = p === provider ? 'block' : 'none';
+            });
         }
 
         document.getElementById('ph-provider').addEventListener('change', updateProviderVisibility);
 
-        function populateCopilotModels() {
-            const statusEl = document.getElementById('ph-test-status');
-            const selectEl = document.getElementById('ph-copilot-model');
-            const baseUrl = document.getElementById('ph-copilot-base-url').value.trim() || DEFAULTS.copilotBaseUrl;
-            const savedModel = loadSettings().copilotModel;
+        function runTestConnection(baseUrl, apiKey, statusElId) {
+            var statusEl = document.getElementById(statusElId);
+            if (!statusEl) return;
             statusEl.textContent = 'Testing...';
             statusEl.style.color = '#ffc107';
-            testCopilotConnection(baseUrl).then(function (result) {
+            testOpenAICompatibleConnection(baseUrl, apiKey || null).then(function (result) {
                 if (result.online) {
-                    statusEl.textContent = 'Connected (' + result.models.length + ' models)';
+                    statusEl.textContent = 'OK (' + result.models.length + ' models)';
                     statusEl.style.color = '#28a745';
-                    selectEl.innerHTML = '';
-                    result.models.forEach(function (modelId) {
-                        const opt = document.createElement('option');
-                        opt.value = modelId;
-                        opt.textContent = modelId;
-                        selectEl.appendChild(opt);
-                    });
-                    var keptVal = savedModel && result.models.indexOf(savedModel) !== -1 ? savedModel : result.models[0];
-                    selectEl.value = keptVal || "";
-                    var selectedOpt = selectEl.options[selectEl.selectedIndex];
-                    if (selectedOpt) selectedOpt.scrollIntoView({ block: 'nearest' });
+                    return result;
+                } else {
+                    statusEl.textContent = 'Error: ' + (result.error || 'no response');
+                    statusEl.style.color = '#dc3545';
+                    return result;
+                }
+            }).catch(function (err) {
+                statusEl.textContent = 'Error: ' + (err.message || 'network');
+                statusEl.style.color = '#dc3545';
+            });
+        }
+
+        function populateModelsIntoSelect(selectEl, models, savedModel) {
+            if (!selectEl) return;
+            if (!Array.isArray(models) || models.length === 0) models = savedModel ? [savedModel] : [];
+            selectEl.innerHTML = '';
+            models.forEach(function (modelId) {
+                var opt = document.createElement('option');
+                opt.value = modelId;
+                opt.textContent = modelId;
+                selectEl.appendChild(opt);
+            });
+            var keptVal = savedModel && models.indexOf(savedModel) !== -1 ? savedModel : models[0];
+            selectEl.value = keptVal || "";
+            var selectedOpt = selectEl.options[selectEl.selectedIndex];
+            if (selectedOpt) selectedOpt.scrollIntoView({ block: 'nearest' });
+        }
+
+        function testAndPopulateCopilot() {
+            var baseUrl = document.getElementById('ph-copilot-base-url').value.trim() || DEFAULTS.copilotBaseUrl;
+            var statusEl = document.getElementById('ph-copilot-status');
+            var selectEl = document.getElementById('ph-copilot-model');
+            statusEl.textContent = 'Testing...';
+            statusEl.style.color = '#ffc107';
+            testOpenAICompatibleConnection(baseUrl, null).then(function (result) {
+                if (result.online) {
+                    statusEl.textContent = 'OK (' + result.models.length + ' models)';
+                    statusEl.style.color = '#28a745';
+                    populateModelsIntoSelect(selectEl, result.models, loadSettings().copilotModel);
                 } else {
                     statusEl.textContent = 'Error: ' + (result.error || 'no response');
                     statusEl.style.color = '#dc3545';
@@ -490,30 +731,78 @@
             });
         }
 
-        document.getElementById('ph-test-copilot-btn').addEventListener('click', populateCopilotModels);
-
-        if (settings.provider === 'copilot') {
-            populateCopilotModels();
+        function testAndPopulateLmStudio() {
+            var baseUrl = document.getElementById('ph-lmstudio-base-url').value.trim() || DEFAULTS.lmStudioBaseUrl;
+            var statusEl = document.getElementById('ph-lmstudio-status');
+            var selectEl = document.getElementById('ph-lmstudio-model');
+            statusEl.textContent = 'Testing...';
+            statusEl.style.color = '#ffc107';
+            testOpenAICompatibleConnection(baseUrl, null).then(function (result) {
+                if (result.online) {
+                    statusEl.textContent = 'OK (' + result.models.length + ' models)';
+                    statusEl.style.color = '#28a745';
+                    populateModelsIntoSelect(selectEl, result.models, loadSettings().lmStudioModel);
+                } else {
+                    statusEl.textContent = 'Error: ' + (result.error || 'no response');
+                    statusEl.style.color = '#dc3545';
+                }
+            }).catch(function (err) {
+                statusEl.textContent = 'Error: ' + (err.message || 'network');
+                statusEl.style.color = '#dc3545';
+            });
         }
+
+        function testOllama() {
+            var baseUrl = document.getElementById('ph-ollama-base-url').value.trim() || DEFAULTS.ollamaBaseUrl;
+            runTestConnection(baseUrl, null, 'ph-ollama-status');
+        }
+
+        function testGeneric() {
+            var baseUrl = document.getElementById('ph-generic-base-url').value.trim() || DEFAULTS.genericBaseUrl;
+            var apiKey = document.getElementById('ph-generic-api-key').value.trim() || null;
+            runTestConnection(baseUrl, apiKey, 'ph-generic-status');
+        }
+
+        document.getElementById('ph-test-copilot-btn').addEventListener('click', testAndPopulateCopilot);
+        document.getElementById('ph-test-lmstudio-btn').addEventListener('click', testAndPopulateLmStudio);
+        document.getElementById('ph-test-ollama-btn').addEventListener('click', testOllama);
+        document.getElementById('ph-test-generic-btn').addEventListener('click', testGeneric);
 
         document.getElementById('ph-cancel-btn').addEventListener('click', function () {
             document.getElementById('ph-ai-settings-modal').remove();
         });
 
         document.getElementById('ph-save-btn').addEventListener('click', function () {
-            var copilotSelect = document.getElementById('ph-copilot-model');
-            var copilotModelVal = "";
-            if (copilotSelect) {
-                copilotModelVal = copilotSelect.value || (copilotSelect.selectedOptions && copilotSelect.selectedOptions[0] ? copilotSelect.selectedOptions[0].value : "");
+            function getVal(id, def) {
+                var el = document.getElementById(id);
+                return el ? (el.value || "").trim() : (def || "");
+            }
+            function getSelectVal(id, def) {
+                var el = document.getElementById(id);
+                if (!el) return def || "";
+                return el.value || (el.selectedOptions && el.selectedOptions[0] ? el.selectedOptions[0].value : "") || def || "";
             }
             const newSettings = {
-                provider: document.getElementById('ph-provider').value,
-                apiKey: document.getElementById('ph-api-key').value,
-                modelName: document.getElementById('ph-model-name').value,
-                openRouterModel: document.getElementById('ph-or-model-name').value,
-                copilotBaseUrl: document.getElementById('ph-copilot-base-url').value.trim() || DEFAULTS.copilotBaseUrl,
-                copilotModel: copilotModelVal || DEFAULTS.copilotModel,
-                thinkingBudget: parseInt(document.getElementById('ph-thinking-budget').value, 10) || 4096
+                provider: getVal('ph-provider', DEFAULTS.provider),
+                apiKey: getVal('ph-api-key', DEFAULTS.apiKey),
+                modelName: getVal('ph-model-name', DEFAULTS.modelName),
+                openRouterModel: getVal('ph-or-model-name', DEFAULTS.openRouterModel),
+                openaiModel: getVal('ph-openai-model', DEFAULTS.openaiModel),
+                groqModel: getVal('ph-groq-model', DEFAULTS.groqModel),
+                ollamaBaseUrl: getVal('ph-ollama-base-url', DEFAULTS.ollamaBaseUrl),
+                ollamaModel: getVal('ph-ollama-model', DEFAULTS.ollamaModel),
+                lmStudioBaseUrl: getVal('ph-lmstudio-base-url', DEFAULTS.lmStudioBaseUrl),
+                lmStudioModel: getSelectVal('ph-lmstudio-model', DEFAULTS.lmStudioModel),
+                togetherModel: getVal('ph-together-model', DEFAULTS.togetherModel),
+                fireworksModel: getVal('ph-fireworks-model', DEFAULTS.fireworksModel),
+                mistralModel: getVal('ph-mistral-model', DEFAULTS.mistralModel),
+                anthropicModel: getVal('ph-anthropic-model', DEFAULTS.anthropicModel),
+                copilotBaseUrl: getVal('ph-copilot-base-url', DEFAULTS.copilotBaseUrl),
+                copilotModel: getSelectVal('ph-copilot-model', DEFAULTS.copilotModel),
+                genericBaseUrl: getVal('ph-generic-base-url', DEFAULTS.genericBaseUrl),
+                genericModel: getVal('ph-generic-model', DEFAULTS.genericModel),
+                genericApiKey: getVal('ph-generic-api-key', DEFAULTS.genericApiKey),
+                thinkingBudget: parseInt(document.getElementById('ph-thinking-budget').value, 10) || DEFAULTS.thinkingBudget
             };
             saveSettings(newSettings);
             document.getElementById('ph-ai-settings-modal').remove();
@@ -529,13 +818,12 @@
                 boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
             });
             document.body.appendChild(toast);
-            setTimeout(() => { toast.style.opacity = '0'; }, 1500);
-            setTimeout(() => { toast.remove(); }, 2000);
+            setTimeout(function () { toast.style.opacity = '0'; }, 1500);
+            setTimeout(function () { toast.remove(); }, 2000);
         });
 
-        if (settings.provider === 'copilot') {
-            setTimeout(function () { document.getElementById('ph-test-copilot-btn').click(); }, 100);
-        }
+        if (settings.provider === 'copilot') setTimeout(function () { testAndPopulateCopilot(); }, 100);
+        else if (settings.provider === 'lmstudio') setTimeout(function () { testAndPopulateLmStudio(); }, 100);
     }
 
     GM_registerMenuCommand("Open AI Settings", createSettingsModal);
@@ -550,8 +838,8 @@
         if (url && url.toString().includes('/api/simple-chat')) {
             const settings = loadSettings();
 
-            const isCopilot = settings.provider === 'copilot';
-            const needsApiKey = !isCopilot;
+            const noApiKeyProviders = ['ollama', 'lmstudio', 'copilot', 'generic'];
+            const needsApiKey = noApiKeyProviders.indexOf(settings.provider) === -1;
             if (needsApiKey && !settings.apiKey) {
                 console.warn("[PAX AI] No API Key configured. Please open settings via Tampermonkey menu.");
                 return originalFetch(url, options);
@@ -626,63 +914,94 @@
                         return "";
                     });
 
-                } else if (settings.provider === 'openrouter') {
+                } else if (settings.provider === 'anthropic') {
                     responseText = await withRetry(async function () {
-                        const orUrl = "https://openrouter.ai/api/v1/chat/completions";
-                        const orPayload = {
-                            model: settings.openRouterModel,
+                        return callAnthropicApi(settings, finalPrompt, isAdvisor, gameSchema);
+                    });
+                } else {
+                    responseText = await withRetry(async function () {
+                        var chatBaseUrl, modelId, authKey, extraHeaders = {};
+                        switch (settings.provider) {
+                            case 'openrouter':
+                                chatBaseUrl = PROVIDER_URLS.openrouter;
+                                modelId = settings.openRouterModel;
+                                authKey = settings.apiKey;
+                                extraHeaders["HTTP-Referer"] = window.location.href;
+                                extraHeaders["X-Title"] = "Pax Historia Hook";
+                                break;
+                            case 'openai':
+                                chatBaseUrl = PROVIDER_URLS.openai;
+                                modelId = settings.openaiModel;
+                                authKey = settings.apiKey;
+                                break;
+                            case 'groq':
+                                chatBaseUrl = PROVIDER_URLS.groq;
+                                modelId = settings.groqModel;
+                                authKey = settings.apiKey;
+                                break;
+                            case 'ollama':
+                                chatBaseUrl = getApiBase(settings.ollamaBaseUrl || DEFAULTS.ollamaBaseUrl);
+                                modelId = settings.ollamaModel || DEFAULTS.ollamaModel;
+                                authKey = null;
+                                break;
+                            case 'lmstudio':
+                                chatBaseUrl = getApiBase(settings.lmStudioBaseUrl || DEFAULTS.lmStudioBaseUrl);
+                                modelId = settings.lmStudioModel || DEFAULTS.lmStudioModel;
+                                authKey = null;
+                                break;
+                            case 'together':
+                                chatBaseUrl = PROVIDER_URLS.together;
+                                modelId = settings.togetherModel;
+                                authKey = settings.apiKey;
+                                break;
+                            case 'fireworks':
+                                chatBaseUrl = PROVIDER_URLS.fireworks;
+                                modelId = settings.fireworksModel;
+                                authKey = settings.apiKey;
+                                break;
+                            case 'mistral':
+                                chatBaseUrl = PROVIDER_URLS.mistral;
+                                modelId = settings.mistralModel;
+                                authKey = settings.apiKey;
+                                break;
+                            case 'copilot':
+                                chatBaseUrl = getApiBase(settings.copilotBaseUrl || DEFAULTS.copilotBaseUrl);
+                                modelId = settings.copilotModel || DEFAULTS.copilotModel;
+                                authKey = null;
+                                break;
+                            case 'generic':
+                                chatBaseUrl = getApiBase(settings.genericBaseUrl || DEFAULTS.genericBaseUrl);
+                                modelId = settings.genericModel || DEFAULTS.genericModel;
+                                authKey = (settings.genericApiKey || "").trim() || null;
+                                break;
+                            default:
+                                throw new Error("Unknown provider: " + settings.provider);
+                        }
+
+                        var payload = {
+                            model: modelId,
                             messages: [{ role: "user", content: finalPrompt }]
                         };
-                        if (isAdvisor) {
-                            orPayload.response_format = {
-                                type: "json_schema",
-                                json_schema: gameSchema
-                            };
+                        if (isAdvisor && gameSchema) {
+                            payload.response_format = { type: "json_schema", json_schema: gameSchema };
                             console.log("%c[PAX AI] Advisor: using response_format", "color: cyan");
                         }
-                        const myResponse = await originalFetch(orUrl, {
+                        var headers = { "Content-Type": "application/json" };
+                        if (authKey) headers["Authorization"] = "Bearer " + authKey;
+                        Object.keys(extraHeaders).forEach(function (k) { headers[k] = extraHeaders[k]; });
+
+                        var result = await fetchApi(chatBaseUrl + "/chat/completions", {
                             method: "POST",
-                            headers: {
-                                "Content-Type": "application/json",
-                                "Authorization": `Bearer ${settings.apiKey}`,
-                                "HTTP-Referer": window.location.href,
-                                "X-Title": "Pax Historia Hook"
-                            },
-                            body: JSON.stringify(orPayload)
+                            headers: headers,
+                            body: payload
                         });
-                        if (!myResponse.ok) {
-                            const errText = await myResponse.text();
-                            const err = new Error("OpenRouter API Error: " + errText);
-                            err.status = myResponse.status;
+                        if (!result.ok) {
+                            var errMsg = result.data?.error?.message || result.text || "HTTP " + result.status;
+                            var err = new Error(settings.provider + " API Error: " + errMsg);
+                            err.status = result.status;
                             throw err;
                         }
-                        const myJson = await myResponse.json();
-                        return myJson.choices?.[0]?.message?.content || "";
-                    });
-                } else if (settings.provider === 'copilot') {
-                    responseText = await withRetry(async function () {
-                        const baseUrl = (settings.copilotBaseUrl || DEFAULTS.copilotBaseUrl).replace(/\/$/, "");
-                        const copilotPayload = {
-                            model: settings.copilotModel || DEFAULTS.copilotModel,
-                            messages: [{ role: "user", content: finalPrompt }]
-                        };
-                        try {
-                            var copilotResult = await fetchCopilotApi("/v1/chat/completions", {
-                                baseUrl: baseUrl,
-                                method: "POST",
-                                body: copilotPayload
-                            });
-                        } catch (e) {
-                            e.status = 0;
-                            throw e;
-                        }
-                        if (!copilotResult.ok) {
-                            const errMsg = copilotResult.data?.error?.message || copilotResult.text || "HTTP " + copilotResult.status;
-                            const err = new Error("Copilot API Error: " + errMsg);
-                            err.status = copilotResult.status;
-                            throw err;
-                        }
-                        return copilotResult.data?.choices?.[0]?.message?.content || "";
+                        return result.data?.choices?.[0]?.message?.content || "";
                     });
                 }
 
