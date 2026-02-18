@@ -1,60 +1,76 @@
 # Pax Historia: Custom AI Backend Hook
 
-Tampermonkey userscript that replaces **Pax Historia**'s default AI backend with Google Gemini, OpenRouter, or **Copilot API**. Use your own API keys or a local GitHub Copilot proxy (no API key required) for AI chats and actions.
+Tampermonkey userscript that replaces **Pax Historia**'s default AI backend with multiple providers. Use your own API keys or local proxies (Ollama, LM Studio, Copilot API) for AI chats and actions.
 
 ## Supported Providers
 
-| Provider | API Key Required | Description |
-|----------|------------------|-------------|
-| **Google AI Studio** | Yes | Gemini (including Thinking models) with your own API key |
+| Provider | API Key | Description |
+|----------|---------|-------------|
+| **Google AI Studio** | Yes | Gemini (including Thinking models) |
 | **OpenRouter** | Yes | Multiple models via [openrouter.ai](https://openrouter.ai) |
-| **Copilot API** | No | Local OpenAI/Anthropic-compatible proxy. Use GitHub Copilot with [copilot-api](https://github.com/caozhiyuan/copilot-api) |
+| **OpenAI** | Yes | Direct OpenAI API (GPT-4, etc.) |
+| **Groq** | Yes | Fast inference, free tier available |
+| **Ollama** | No | Local models at `http://localhost:11434` |
+| **LM Studio** | No | Local models at `http://localhost:1234` |
+| **Together AI** | Yes | Open and fine-tuned models |
+| **Fireworks AI** | Yes | Fast inference API |
+| **Mistral AI** | Yes | Mistral models |
+| **Anthropic (Claude)** | Yes | Claude models |
+| **Copilot API** | No | Local proxy via [copilot-api](https://github.com/caozhiyuan/copilot-api) |
+| **Generic** | Optional | Any OpenAI-compatible API (custom Base URL) |
 
 ## Features
 
-- **Google Gemini / OpenRouter / Copilot API**: Three configurable providers from the GUI.
-- **Copilot API**: No API key; only Base URL (e.g. `http://localhost:4141`). Supports [caozhiyuan/copilot-api](https://github.com/caozhiyuan/copilot-api).
-- **Model selector**: With Copilot API, models are loaded automatically from the proxy.
-- **Connection test**: Verifies if Copilot API is online before saving.
-- **Thinking Budget**: Configurable for Gemini models.
-- **Privacy**: Your prompts are sent to your chosen provider, not to the game's default backend.
+- **12 providers**: Google, OpenRouter, OpenAI, Groq, Ollama, LM Studio, Together, Fireworks, Mistral, Anthropic, Copilot, Generic
+- **Connection test**: Verifies Base URL for Copilot, LM Studio, Ollama, Generic before saving
+- **Model selector**: Auto-loads models from local proxies (Copilot, LM Studio)
+- **Thinking Budget**: Configurable for Gemini models
+- **Indicator badge**: Shows current provider and model in the header (click to open settings)
+- **Privacy**: Prompts go to your chosen provider, not the game's default backend
 
 ## Installation
 
-1. Install the **Tampermonkey** extension in your browser (Chrome, Firefox, Edge, etc.).
+1. Install **Tampermonkey** in your browser (Chrome, Firefox, Edge).
 2. Create a new script in Tampermonkey.
-3. Copy and paste the contents of `PaxHistoriaAIHook.user.js` into the editor.
-4. Save the script (Ctrl+S).
+3. Copy and paste the contents of `PaxHistoriaAIHook.user.js`.
+4. Save (Ctrl+S).
 
 ## Configuration
 
 1. Open [Pax Historia](https://paxhistoria.co).
-2. Click the **Tampermonkey** icon in your browser toolbar.
-3. Select **"Open AI Settings"**.
-4. Configure according to your provider:
+2. Click **Tampermonkey** icon and select **"Open AI Settings"**, or click the indicator badge in the header.
+3. Choose provider and configure:
 
 ### Google AI Studio
-- **Provider**: Google AI Studio
 - **API Key**: [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey)
-- **Model Name**: e.g. `gemini-3-flash-preview`
+- **Model**: e.g. `gemini-3-flash-preview`
 - **Thinking Budget**: 4096 (recommended)
 
 ### OpenRouter
-- **Provider**: OpenRouter
 - **API Key**: [openrouter.ai/keys](https://openrouter.ai/keys)
-- **OpenRouter Model**: e.g. `google/gemini-2.0-flash-thinking-exp:free`
+- **Model**: e.g. `google/gemini-2.0-flash-thinking-exp:free`
+
+### OpenAI / Groq / Together / Fireworks / Mistral / Anthropic
+- **API Key**: From each provider's dashboard
+- **Model**: Provider-specific model ID
+
+### Ollama / LM Studio (local)
+- **Base URL**: `http://localhost:11434` (Ollama) or `http://localhost:1234` (LM Studio)
+- **Model**: Name of loaded model. Use "Test" to list available models (LM Studio).
 
 ### Copilot API (no API key)
 - **Provider**: Copilot API (local)
-- **Base URL**: `http://localhost:4141` (default). The [copilot-api](https://github.com/caozhiyuan/copilot-api) proxy must be running.
-- **Model**: Use "Test connection" to load models and select one (e.g. `gpt-4.1`, `claude-opus-4.6`).
+- **Base URL**: `http://localhost:4141` 
+(default). The [copilot-api](https://github.com/
+caozhiyuan/copilot-api) proxy must be running.
+- **Model**: Use "Test connection" to load 
+models and select one (e.g. `gpt-4.1`, 
+`claude-opus-4.6`).
 
-**Run Copilot API:**
-```bash
-npx copilot-api@latest start
-# or from source:
-bun run src/main.ts start
-```
+### Generic (OpenAI-compatible)
+- **Base URL**: e.g. `https://api.openai.com/v1` or Azure/custom endpoint
+- **Model**: Model ID
+- **API Key (optional)**: Leave empty for local or public endpoints
 
 5. Save and reload the page.
 
